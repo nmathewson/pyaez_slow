@@ -10,7 +10,7 @@ import blake2
 
 def xor(a,b):
     assert len(a) == len(b)
-    return [(a,b) for aa, bb in zip(a,b)]
+    return [(aa^bb) for aa, bb in zip(a,b)]
 
 def double(a):
     assert len(a) == 16
@@ -21,8 +21,9 @@ def double(a):
             v |= a[i+1] >> 7
         r.append(v)
     msb = a[0] >> 7
-    v[15] ^= (0,135)[msb] #timing
-    return v
+    r[15] ^= (0,135)[msb] #timing
+    assert len(r) == 16
+    return r
 
 def segment(lst, size):
     r = []
@@ -31,13 +32,14 @@ def segment(lst, size):
     return r
 
 def multiply(scalar, x):
+    assert len(x) == 16
     if scalar == 0:
         return [0]*16
 
     v = x[:]
     while scalar > 1:
         if scalar & 1:
-            v = double(v) + x
+            v = xor(double(v), x)
         else:
             v = double(v)
 
@@ -52,28 +54,13 @@ def numToBlock(v):
     r.reverse()
     return r
 
-def bytesToBits(x):
-    r = []
-    for byte in x:
-        for i in [7,6,5,4,3,2,1,0]:
-            if byte & (1<<i):
-                r.append(1)
-            else:
-                r.append(0)
-    return r
-
-def bitsToBytes(bits):
-    r = []
-    for bytenum in xrange(0,(len(bits)+7)//8):
-        byte = 0
-        for bitnum in len(0,7):
-            idx = bytenum * 8 + bitnum
-            if idx < len(bits):
-                #XXXX finish me
-                pass
 
 def pad_1_0(s):
     r = s + [128] + [0]*15
+    return r[:16]
+
+def pad_0(s):
+    r = s + [0]*16
     return r[:16]
 
 ZERO_128 = (0,)*16
@@ -86,7 +73,7 @@ class AEZ:
         if len(key) == (384 // 8):
             self.K = map(ord, key)
         else:
-            self.K = map(ord, blake2.Blake2b(key, digest_size=48).final())
+            self.K = map(ord, blake2.BLAKE2b(key, digest_size=48).final())
 
         assert len(self.K) == 48
 
@@ -101,6 +88,7 @@ class AEZ:
         x = xor(x, roundkeys[0])
         for rk in roundkeys[1:]:
             x = self.AES.aes_round(x, rk)
+        return x
 
     def AES4(self, x, roundkeys):
         assert len(roundkeys) == 5
@@ -114,13 +102,14 @@ class AEZ:
         """Scaled-down tweakable block cipher to encrypt 'x'. Uses (j,i)
            as the tweaks, and takes the key from self.(I,J,L)"""
 
+        assert len(x) == 16
         I,J,L = self.I, self.J, self.L
 
         assert j >= -1
 
         if j == -1:
             rounds = (ZERO_128, I,J,L,I,J,L,I,J,L,I)
-            return self.AES10(xor(x, multiply(i, J), rounds)) # SPEC ERROR
+            return self.AES10(xor(x, multiply(i, J)), rounds) # SPEC ERROR
 
         elif j == 0:
             delta = multiply(i, I)
@@ -144,7 +133,7 @@ class AEZ:
         else:
             factor1 = 2**(j-3)
             factor2 = 2**(3+(i-1)//8) + (i - 1) % 8 ## SPEC PROBLEM, xor??
-            delta = xor(multiply(factor1, L), (factor2, J))
+            delta = xor(multiply(factor1, L), multiply(factor2, J))
             v = self.AES4(xor(x, delta), (ZERO_128, J,I,L, ZERO_128))
             return xor(v, delta)
 
@@ -157,10 +146,9 @@ class AEZ:
             for idx in xrange(1,m+1):
                 block = map(ord, t[(idx-1)*16:idx*16])
                 if idx == m and len(block) != 16:
-                    block = block + [128] + [0]*15
-                    block = block[:16]
+                    block = pad_1_0(block)
                     idx = 0
-                delta = xor(delta, self.E(t,j,idx))
+                delta = xor(delta, self.E(block,j,idx))
         return delta
 
     def AEZ_prf(self, T, nBytes):
@@ -188,13 +176,63 @@ class AEZ:
         else:
             k = 8
         n = m // 2
-        if m & 1:
-            # odd number of bytes ; I don't do bits here. XXXXX
-            pass
+
+        # Split X into L and R.  We don't handle a odd number of bits.
+        if len(X) & 1:
+            L = X[:len(X)//2+1]
+            L[-1] &= 0xf0
+            R_tmp = X[len(X)//2:]
+            # now shift R 4 bits upwards.
+            R = [ (R_tmp[0]<<4)&255 ]
+            for b in R_tmp[1:]:
+                R[-1] |= b>>4
+                R.append((b<<4)&255)
+            def mask(x):
+                r = x[:]
+                r[-1] &= 0xf0
+                return r
+            def pad(x):
+                r = x[:]
+                r[-1] |= 0x08
+                return pad_1_0(r)
+        else:
+            L = X[:len(X)//2]
+            R = X[len(X)//2:]
+            def mask(x):
+                return x
+            pad = pad_1_0
+
+        if m >= 128:
+            i = 6
+        else:
+            i = 7
 
         for j in xrange(k):
-            # XXXX finish me; who cares.
-            pass
+            rhs = reduce(xor, [delta, pad(R), numToBlock(j)])
+            rhs = self.E(rhs, 0, i)
+            Rp = mask(xor(L, rhs[:len(L)]))
+            L = Rp
+
+        if len(X) & 1:
+            # concatenate bitwise
+            C = L[:]
+            for b in R:
+                C[-1] |= (b>>4)
+                C.append( (b<<4) & 0xf0)
+            assert C[-1] == 0
+            del C[-1]
+        else:
+            C = L + R
+
+        if m < 128:
+            inp = pad_0(C)
+            inp[0] |= 0x80
+            inp = xor(inp, delta)
+            inp = self.E(inp, 0, 3)
+            bit = inp[0] & 0x80
+            C[0] ^= bit
+
+        return C
 
     def Encipher_core(self,T,M):
         delta = self.AEZ_hash(T)
@@ -204,7 +242,7 @@ class AEZ:
         M_x, M_y = segment(M[-32:], 16)
         part_mid = M[(nPairs-1)*32:-32]
         d = len(part_mid) * 8
-        if len(part_mid) < 128:
+        if len(part_mid) < 16:
             M_u = part_mid; M_v = []
         else:
             M_u = part_mid[:16]; M_v = part_mid[16:]
@@ -223,12 +261,12 @@ class AEZ:
         if d == 0:
             X = reduce(xor, X_i, ZERO_128)
         elif d <= 127:
-            pad_M_u = [M_u + [128] + [0]*15][:16]
+            pad_M_u = pad_1_0(M_u)
             X = reduce(xor, X_i, self.E(pad_M_u, 0, 4))
         else:
-            pad_M_v = [M_v + [128] + [0]*15][:16]
-            X = reduce(xor, X_i,
-                       xor(self.E(pad_M_u, 0, 4), self.E(pad_M_v,0,5)))
+            pad_M_v = pad_1_0(M_v)
+            iv = xor(self.E(M_u, 0, 4), self.E(pad_M_v,0,5))
+            X = reduce(xor, X_i, iv)
 
         # 227 : compute S
         S_x = reduce(xor, [M_x, delta, X, self.E(M_y,0,1)])
@@ -252,27 +290,41 @@ class AEZ:
 
         # 229-231: compute C_u, C_v, Y
         if d == 0:
-            Cu = Cv = []
+            C_u = C_v = []
             Y = reduce(xor, Y_i, ZERO_128)
         elif d <= 127:
-            Cu = xor(M_u, self.E(S, -1, 4)[:len(M_u)])
-            Cv = []
-            Y = reduce(xor, Y_i, self.E(pad_1_0(Cu), 0, 4))
+            C_u = xor(M_u, self.E(S, -1, 4)[:len(M_u)])
+            C_v = []
+            Y = reduce(xor, Y_i, self.E(pad_1_0(C_u), 0, 4))
         else:
-            Cu = xor(M_u, self.E(S, -1, 4))
-            Cv = xor(M_v, self.E(S, -1, 5)[:len(M_v)])
-            Y = reduce(xor, Y_i, xor(self.E(Cu, 0, 4),
-                                     self.E(pad_1_0(Cv), 0, 5)))
+            C_u = xor(M_u, self.E(S, -1, 4))
+            C_v = xor(M_v, self.E(S, -1, 5)[:len(M_v)])
+            Y = reduce(xor, Y_i, xor(self.E(C_u, 0, 4),
+                                     self.E(pad_1_0(C_v), 0, 5)))
 
         # 232: compute C_x, C_y
-        C_x = xor(S_x, self.E(S_y, -1, 2))
-        C_y = reduce(xor, [S_y, delta, Y, self.E(C_y, 0, 2)])
+        C_y = xor(S_x, self.E(S_y, -1, 2))
+        C_x = reduce(xor, [S_y, delta, Y, self.E(C_y, 0, 2)])
 
         # Flatten output
-        return sum(zip(C_i, Cp_i), C_u, C_v, C_x, C_y)
+        return reduce(list.__add__, [zip(C_i, Cp_i), C_u, C_v, C_x, C_y])
 
-    def Encipher(self, T, X):
+    def Encipher(self, X, T):
+        X = map(ord, X)
         if len(X) < 32:
             return self.Encipher_tiny(T,X)
         else:
             return self.Encipher_core(T,X)
+
+
+print AEZ("foob").Encipher("ab",[])
+print AEZ("foob").Encipher("abc",[])
+print AEZ("foob").Encipher("abcd",[])
+print AEZ("foob").Encipher("abcde",[])
+print AEZ("foob").Encipher("abcd"*20,[])
+print AEZ("foob").Encipher("abcd"*40,[])
+
+b = "abcd"*41
+for i in xrange(1,len(b)):
+    print AEZ("foob").Encipher(b[:i],[b,b])
+
