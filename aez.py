@@ -6,7 +6,7 @@
 # The implementations here are made directly from the specification.
 
 import aes
-import blake2
+import pyblake2
 
 def xor(a,b):
     assert len(a) == len(b)
@@ -54,7 +54,6 @@ def numToBlock(v):
     r.reverse()
     return r
 
-
 def pad_1_0(s):
     r = s + [128] + [0]*15
     return r[:16]
@@ -65,6 +64,7 @@ def pad_0(s):
 
 ZERO_128 = (0,)*16
 
+
 class AEZ:
 
     AES = aes.AES()
@@ -73,7 +73,7 @@ class AEZ:
         if len(key) == (384 // 8):
             self.K = map(ord, key)
         else:
-            self.K = map(ord, blake2.BLAKE2b(key, digest_size=48).final())
+            self.K = map(ord, pyblake2.blake2b(data=key, digest_size=48).digest())
 
         assert len(self.K) == 48
 
@@ -355,15 +355,26 @@ class AEZ:
             r = self.Encipher(T, X)
         return r
 
+import binascii
+h = binascii.a2b_hex
+b = lambda bytes: map(ord, bytes)
 
+def testVectors():
+    testExtract()
 
+def testExtract():
+    inp = ""
+    out = h("b32811423377f52d7862286ee1a72ee540524380fda1724a6f25d7978c6fd3244a6caf0498812673c5e05ef583825100")
+    assert AEZ(inp).K == b(out)
 
-b = "abcd"*41
-for i in xrange(0,128,8):
-    print AEZ("foob").Encrypt("nonce!", [], i, "a")
+    inp = h("48656c6c6f20776f726c64")
+    out = h("29cecb04dd421f862f198ea2e860151ada653a38e9d0aacd0a201cb7a5644ec215dd6ef51b70aba7196903ae2be6fdd4")
+    assert AEZ(inp).K == b(out)
 
+    inp = h("5468697320737472696e6720697320666f7274756e61746520746f206861766520343820627974656163746572732121")
+    out = inp
+    assert AEZ(inp).K == b(out)
 
-if 1:
-    b = "abcd"*41
-    for i in xrange(0,len(b)):
-        print AEZ("foob").Encrypt("nonce!", [], 128, b[:i])
+if __name__ == '__main__':
+    testVectors()
+    
