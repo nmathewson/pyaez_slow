@@ -144,7 +144,7 @@ class AEZ:
             j = i + 2
             m = max(1, (len(t)+15)//16)
             for idx in xrange(1,m+1):
-                block = map(ord, t[(idx-1)*16:idx*16])
+                block = t[(idx-1)*16:idx*16]
                 if idx == m and len(block) != 16:
                     block = pad_1_0(block)
                     idx = 0
@@ -307,24 +307,28 @@ class AEZ:
         C_x = reduce(xor, [S_y, delta, Y, self.E(C_y, 0, 2)])
 
         # Flatten output
-        return reduce(list.__add__, [zip(C_i, Cp_i), C_u, C_v, C_x, C_y])
+        r = [a+b for a,b in zip(C_i, Cp_i)]
+        r.extend([C_u, C_v, C_x, C_y])
+        return reduce(list.__add__, r)
 
-    def Encipher(self, X, T):
-        X = map(ord, X)
+    def Encipher(self, T,X):
         if len(X) < 32:
             return self.Encipher_tiny(T,X)
         else:
             return self.Encipher_core(T,X)
 
+    def Encrypt(self, N, A, tau, M):
+        X = map(ord, M) + [0] * (tau // 8)
+        T = [ numToBlock(tau), map(ord,N) ]
+        T += A
+        if len(M) == 0:
+            r = self.AEZ_prf(T, tau // 8)
+        else:
+            r = self.Encipher(T, X)
+        return r
 
-print AEZ("foob").Encipher("ab",[])
-print AEZ("foob").Encipher("abc",[])
-print AEZ("foob").Encipher("abcd",[])
-print AEZ("foob").Encipher("abcde",[])
-print AEZ("foob").Encipher("abcd"*20,[])
-print AEZ("foob").Encipher("abcd"*40,[])
 
 b = "abcd"*41
-for i in xrange(1,len(b)):
-    print AEZ("foob").Encipher(b[:i],[b,b])
+for i in xrange(0,len(b)):
+    print AEZ("foob").Encrypt("nonce!", [], 128, b[:i])
 
