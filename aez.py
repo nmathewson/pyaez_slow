@@ -100,7 +100,32 @@ class AEZ:
 
     def E(self, x, j, i):
         """Scaled-down tweakable block cipher to encrypt 'x'. Uses (j,i)
-           as the tweaks, and takes the key from self.(I,J,L)"""
+           as the tweaks, and takes the key from self.(I,J,L)
+
+        TWEAKS:  (AES4 unless specified)
+            (-1, 1)     is used to compute S_y from S_x. (AES10)
+            (-1, 2)     is used to compute C_y from S_y. (AES10)
+            (-1, 3)     is used to generate data in the PRF. (AES10)
+            (-1, 4)     is used to compute C_u from S. (AES10)
+            (-1, 5)     is used to compute C_v from S. (AES10)
+
+
+            (0, 0)      is used in the first phase of AEZ-core to make X_i.
+                        and again in the second phase to make C'_i
+            (0, 1)      is used to extract part of M_y for S_x
+            (0, 2)      is used to compute part of C_x from C_y
+            (0, 3)      is used for the narrow output case of AEZ-tiny
+            (0, 4)      is used to extract part of X from M_u
+            (0, 5)      is used to extract part of X from M_v
+            (0, 6)      is used in the core of the wide case of AEZ-tiny
+            (0, 7)      is used in the core of the narrow case of AEZ-tiny
+
+            (1, i)      is used to compute W_i from M_i and M'_i and
+                       and again in the second phase to make C_i
+            (2, i)      is used to compute S' from S for C_i and C'_i
+
+            (3...., i)  is used for AEZ_hash.
+        """
 
         assert len(x) == 16
         I,J,L = self.I, self.J, self.L
@@ -108,10 +133,12 @@ class AEZ:
         assert j >= -1
 
         if j == -1:
+            assert 1 <= i <= 5
             rounds = (ZERO_128, I,J,L,I,J,L,I,J,L,I)
             return self.AES10(xor(x, multiply(i, J)), rounds) # SPEC ERROR
 
         elif j == 0:
+            assert 0 <= i <= 7
             delta = multiply(i, I)
             return self.AES4(xor(x, delta), (ZERO_128, J,I,L, ZERO_128))
 
@@ -211,7 +238,8 @@ class AEZ:
             rhs = reduce(xor, [delta, pad(R), numToBlock(j)])
             rhs = self.E(rhs, 0, i)
             Rp = mask(xor(L, rhs[:len(L)]))
-            L = Rp
+            L = R
+            R = Rp
 
         if len(X) & 1:
             # concatenate bitwise
@@ -328,7 +356,14 @@ class AEZ:
         return r
 
 
-b = "abcd"*41
-for i in xrange(0,len(b)):
-    print AEZ("foob").Encrypt("nonce!", [], 128, b[:i])
 
+
+b = "abcd"*41
+for i in xrange(0,128,8):
+    print AEZ("foob").Encrypt("nonce!", [], i, "a")
+
+
+if 1:
+    b = "abcd"*41
+    for i in xrange(0,len(b)):
+        print AEZ("foob").Encrypt("nonce!", [], 128, b[:i])
