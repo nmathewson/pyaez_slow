@@ -78,6 +78,7 @@ class AEZ:
         self.I = self.K[0:16]
         self.J = self.K[16:32]
         self.L = self.K[32:48]
+        assert self.I+self.J+self.L == self.K
 
 
     def AES_N(self, x, roundkeys):
@@ -85,8 +86,11 @@ class AEZ:
            the keys."""
         x = xor(x, roundkeys[0])
         for rk in roundkeys[1:]:
-            x = self.AES.aes_round(x, rk)
-        return x
+            assert len(rk) == 16
+            print x, rk
+            x = self.AES.aes_round(x[:], rk)
+            print "".join("%02x"%b for b in x)
+        return x[:]
 
     def AES4(self, x, roundkeys):
         assert len(roundkeys) == 5
