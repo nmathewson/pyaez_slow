@@ -60,12 +60,27 @@ def pad_0(s):
     r = s + [0]*16
     return r[:16]
 
+def blockToWords(rk):
+    r = []
+    for i in xrange(0,16,4):
+        n = (rk[i]<<24) | (rk[i+1]<<16) | (rk[i+2]<<8) | (rk[i+3]<<0)
+        r.append(n)
+    return r
+
+def wordsToBlock(ws):
+    r = []
+    for w in ws:
+        r.append((w>>24) & 0xff)
+        r.append((w>>16) & 0xff)
+        r.append((w>>8 ) & 0xff)
+        r.append((w>>0 ) & 0xff)
+    return r
+
+
 ZERO_128 = (0,)*16
 
 
 class AEZ:
-
-    AES = aes.AES()
 
     def __init__(self, key):
         if len(key) == (384 // 8):
@@ -84,13 +99,10 @@ class AEZ:
     def AES_N(self, x, roundkeys):
         """Does an AES4 or AES10 encryption on x, using roundkeys as
            the keys."""
-        x = xor(x, roundkeys[0])
-        for rk in roundkeys[1:]:
-            assert len(rk) == 16
-            print x, rk
-            x = self.AES.aes_round(x[:], rk)
-            print "".join("%02x"%b for b in x)
-        return x[:]
+        a = aes.AES("x"*16)
+        a._Ke = [ blockToWords(r) for r in roundkeys ]
+        out = a.encrypt(x[:])
+        return wordsToBlock(out)
 
     def AES4(self, x, roundkeys):
         assert len(roundkeys) == 5
@@ -421,7 +433,6 @@ def testMult():
 def testE():
     key = h("5468697320737472696e6720697320666f7274756e61746520746f206861766520343820627974656163746572732121")
     out = AEZ(key).E([0]*16, 0, 0)
-    print out
     assert out == b(h("8eb11d57f7aea44a297f110a57ede9ed"))
 
 if __name__ == '__main__':
