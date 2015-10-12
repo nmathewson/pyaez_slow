@@ -23,8 +23,14 @@ def double(a):
         if i < 15:
             v |= a[i+1] >> 7
         r.append(v)
+
+    # This version has a timing side-channel issue.
     msb = a[0] >> 7
-    r[15] ^= (0,135)[msb] #timing
+    r[15] ^= (0,135)[msb]
+
+    # Here's a constant-time version.
+    # r[15] ^= 135 & -(a[0]>>7)
+
     assert len(r) == 16
     return r
 
@@ -39,8 +45,13 @@ def multiply(scalar, x):
     r = [0] * 16
     v = x[:]
     while scalar:
+        # This version has a timing side-channel issue.
         if scalar & 1:
             r = xor(r, v)
+
+        # This one is constant-time
+        # bit = scalar & 1
+        # r = xor(r, [vv & -bit for vv in v])
 
         v = double(v)
 
