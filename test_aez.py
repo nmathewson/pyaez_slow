@@ -129,7 +129,7 @@ def testVectors():
     testE()
     testHash()
     testPRF()
-    testEncrypt()
+    testEncrypt(True)
     print "OK"
 
 if __name__ == '__main__':

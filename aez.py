@@ -452,7 +452,7 @@ class AEZ:
             X = xor(W, Sp)
             Z = xor(Y, Sp)
             Mp = xor(X, self.E(Z, 0, 0))
-            M = zor(Z, self.E(Mp, 1, i))
+            M = xor(Z, self.E(Mp, 1, i))
             M_i.append(M)
             M_i.append(Mp)
             X_i.append(X)
@@ -463,19 +463,25 @@ class AEZ:
             M_v = []
             X = reduce(xor, X_i, ZERO_128)
         elif d <= 127:
-            M_u = xor(C_u, self.E(C_u, self.E(S, -1, 4)[:len(C_u)]))
+            M_u = xor(C_u, self.E(S, -1, 4)[:len(C_u)])
             M_v = []
             X = reduce(xor, X_i, self.E(pad_1_0(M_u), 0, 4))
         else:
-            M_u = xor(C_u, self.E(C_u, self.E(S, -1, 4)))
-            M_v = xor(C_v, self.E(C_v, self.E(S, -1, 5)[:len(C_v)]))
+            M_u = xor(C_u, self.E(S, -1, 4))
+            M_v = xor(C_v, self.E(S, -1, 5)[:len(C_v)])
             iv = xor(self.E(M_u, 0, 4), self.E(pad_1_0(M_v), 0, 5))
             X = reduce(xor, X_i, iv)
 
         # Line 632: Compute M_y, M_x
         M_y = xor(S_x, self.E(S_y, -1, 1))
-        M_x = reduce(xor, [delta, X, self.E(M_y, 0, 1)])
-        return reduce(list.__add__, [M_i, M_u, M_v, M_x, M_y])
+        M_x = reduce(xor, [S_y, delta, X, self.E(M_y, 0, 1)])
+
+        M = reduce(list.__add__, M_i, [])
+        M.extend(M_u)
+        M.extend(M_v)
+        M.extend(M_x)
+        M.extend(M_y)
+        return M
 
     def Encipher(self, T,X):
         if len(X) < 32:
