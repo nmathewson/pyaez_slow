@@ -221,29 +221,32 @@ class AEZ:
             k = 8
         n = m // 2
 
-        # Split X into L and R.  We don't handle a odd number of bits.
+        # Split X into L and R.
         if len(X) & 1:
             L = X[:len(X)//2+1]
             L[-1] &= 0xf0
             R_tmp = X[len(X)//2:]
             # now shift R 4 bits upwards.
             R = [ (R_tmp[0]<<4)&255 ]
+            half_length = len(X)//2 + 1
             for b in R_tmp[1:]:
                 R[-1] |= b>>4
                 R.append((b<<4)&255)
             def mask(x):
-                r = x[:]
+                r = x[:half_length]
                 r[-1] &= 0xf0
                 return r
             def pad(x):
+                assert len(x) == half_length
                 r = x[:]
                 r[-1] |= 0x08
-                return pad_1_0(r)
+                return pad_0(r)
         else:
             L = X[:len(X)//2]
             R = X[len(X)//2:]
+            half_length = len(X)//2
             def mask(x):
-                return x
+                return x[:half_length]
             pad = pad_1_0
 
         if m >= 128:
@@ -252,22 +255,22 @@ class AEZ:
             i = 7
 
         for j in xrange(k):
-            rhs = reduce(xor, [delta, pad(R), numToBlock(j)])
+            rhs = reduce(xor, [delta, pad(mask(R)), numToBlock(j)])
             rhs = self.E(rhs, 0, i)
-            Rp = mask(xor(L, rhs[:len(L)]))
+            Rp = mask(xor(pad(L), rhs))
             L = R
             R = Rp
 
         if len(X) & 1:
             # concatenate bitwise
-            C = L[:]
-            for b in R:
+            C = R[:]
+            for b in L:
                 C[-1] |= (b>>4)
                 C.append( (b<<4) & 0xf0)
             assert C[-1] == 0
             del C[-1]
         else:
-            C = L + R
+            C = R + L
 
         if m < 128:
             inp = pad_0(C)
