@@ -6,13 +6,8 @@ from test_vectors import *
 import binascii
 h = binascii.a2b_hex
 b = lambda bytes: map(ord, bytes)
-
-def testVectors():
-    testExtract()
-    testMult()
-    testE()
-
-    print "OK"
+def b2h(bb):
+    r = "".join("%02x"%b for b in bb)
 
 def testExtract():
     inp = ""
@@ -91,10 +86,46 @@ def testE():
     assert out == b(h("8edc3cbb3358e4a60277063d9a98c7bb"))
 
     for K,j,i,inp,out in E_VECTORS:
-        result = AEZ(K).E(b(h(inp)), j, i)
+        result = AEZ(h(K)).E(b(h(inp)), j, i)
         assert result == b(h(out))
 
-    print "%d/%d Extract okay"%(len(E_VECTORS), len(E_VECTORS))
+    print "%d/%d E okay"%(len(E_VECTORS), len(E_VECTORS))
 
+def testHash():
+    from aez import numToBlock
+    for K, tau, T_rest, V in HASH_VECTORS:
+        t0 = numToBlock(tau)
+        T = [t0] + [b(h(t)) for t in  T_rest]
+        out = AEZ(h(K)).AEZ_hash(T)
+        assert out == b(h(V))
+    print "%d/%d AEZ-hash okay"%((len(HASH_VECTORS),)*2)
 
-testVectors()
+def testPRF():
+    for K, delta, taubytes, R in PRF_VECTORS:
+        out = AEZ(h(K)).AEZ_prf_inner(b(h(delta)), taubytes)
+        assert out == b(h(R))
+    print "%d/%d AEZ-prf okay"%((len(PRF_VECTORS),)*2)
+
+def testEncrypt():
+    ok = 0
+    for K, N, A, taubytes, M, C in ENCRYPT_VECTORS:
+        out = AEZ(h(K)).Encrypt(h(N), map(h, A), taubytes * 8, h(M))
+        if out == h(C):
+            ok += 1
+        else:
+            print "BAD (taubytes=%d,len(M)=%d)"%(taubytes, len(M)//2)
+
+    print "%d/%d encryptions okay"%(ok,len(ENCRYPT_VECTORS))
+    assert ok == len(ENCRYPT_VECTORS)
+
+def testVectors():
+    testExtract()
+    testMult()
+    testE()
+    testHash()
+    testPRF()
+    testEncrypt()
+    print "OK"
+
+if __name__ == '__main__':
+    testVectors()
