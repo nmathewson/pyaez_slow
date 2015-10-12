@@ -378,6 +378,8 @@ def testVectors():
     testMult()
     testE()
 
+    print "OK"
+
 def testExtract():
     inp = ""
     out = h("b32811423377f52d7862286ee1a72ee540524380fda1724a6f25d7978c6fd3244a6caf0498812673c5e05ef583825100")
@@ -434,6 +436,19 @@ def testE():
     key = h("5468697320737472696e6720697320666f7274756e61746520746f206861766520343820627974656163746572732121")
     out = AEZ(key).E([0]*16, 0, 0)
     assert out == b(h("8eb11d57f7aea44a297f110a57ede9ed"))
+
+    key = h("5468697320737472696e6720697320666f7274756e61746520746f206861766520343820636861726163746572732121")
+    out = AEZ(key).E([0]*16, 0, 0)
+    assert out == b(h("1e516d27ae0f05b2b5e3ae29c645d07c"))
+
+    key = h("5468697320737472696e6720697320666f7274756e61746520746f206861766520343820636861726163746572732121")
+    out = AEZ(key).E([0]*16, 0, 1)
+    assert out == b(h("d0b9f8104073fce8d5287d693c715e0d"))
+
+    out = AEZ(key).E([0]*15 + [1], 0, 0)
+    assert out == b(h("8edc3cbb3358e4a60277063d9a98c7bb"))
+
+    
 
 if __name__ == '__main__':
     testVectors()
