@@ -325,10 +325,9 @@ class AEZ:
 
         return self.Encipher_tiny_concat_bits(C,R,L)[:len(C)]
 
-
-    def Encipher_core(self,T,M):
-        delta = self.AEZ_hash(T)
+    def Encipher_core_split(self, M):
         nPairs = len(M) // 32
+
         M_i = [ (s[:16],s[16:])
                        for s in segment(M[:(nPairs-1)*32], 32) ]
         M_x, M_y = segment(M[-32:], 16)
@@ -338,6 +337,13 @@ class AEZ:
             M_u = part_mid; M_v = []
         else:
             M_u = part_mid[:16]; M_v = part_mid[16:]
+
+        return M_i, M_u, M_v, M_x, M_y, d
+
+    def Encipher_core(self,T,M):
+        delta = self.AEZ_hash(T)
+
+        M_i, M_u, M_v, M_x, M_y, d = self.Encipher_core_split(M)
 
         # spec line 224.
         W_i = []
@@ -404,7 +410,72 @@ class AEZ:
         return reduce(list.__add__, r)
 
     def Decipher_core(self,T,C):
-        assert False
+        delta = self.AEZ_hash(T)
+
+        C_i, C_u, C_v, C_x, C_y, d = self.Encipher_core_split(C)
+
+        # line 624.
+        Y_i = []
+        W_i = []
+        for i in xrange(len(C_i)):
+            a,b = C_i[i]
+            i = i+1
+            W = xor(a, self.E(b, 1, i))
+            W_i.append(W)
+            Y_i.append(xor(b, self.E(W, 0, 0)))
+
+        # line 625-626: computing Y.
+        if d == 0:
+            Y = reduce(xor, Y_i, ZERO_128)
+        elif d <= 127:
+            pad_C_u = pad_1_0(C_u)
+            Y = reduce(xor, Y_i, self.E(pad_C_u, 0, 4))
+        else:
+            pad_C_v = pad_1_0(C_v)
+            iv = xor(self.E(C_u, 0, 4), self.E(pad_C_v, 0, 5))
+            Y = reduce(xor, Y_i, iv)
+
+        # Line 627: compute S.
+        S_x = reduce(xor, [C_x, delta, Y, self.E(C_y, 0, 2)])
+        S_y = reduce(xor, [C_y, self.E(S_x, -1, 2)])
+        S = xor(S_x, S_y)
+
+        # Line 628: compute M_i
+        M_i = []
+        X_i = []
+        for i in xrange(len(C_i)):
+            W = W_i[i]
+            Y = Y_i[i]
+            i = i + 1
+            Sp = self.E(S, 2, i)
+
+            X = xor(W, Sp)
+            Z = xor(Y, Sp)
+            Mp = xor(X, self.E(Z, 0, 0))
+            M = zor(Z, self.E(Mp, 1, i))
+            M_i.append(M)
+            M_i.append(Mp)
+            X_i.append(X)
+
+        # Line 629-631: Compute Mu, Mv.
+        if d == 0:
+            M_u = []
+            M_v = []
+            X = reduce(xor, X_i, ZERO_128)
+        elif d <= 127:
+            M_u = xor(C_u, self.E(C_u, self.E(S, -1, 4)[:len(C_u)]))
+            M_v = []
+            X = reduce(xor, X_i, self.E(pad_1_0(M_u), 0, 4))
+        else:
+            M_u = xor(C_u, self.E(C_u, self.E(S, -1, 4)))
+            M_v = xor(C_v, self.E(C_v, self.E(S, -1, 5)[:len(C_v)]))
+            iv = xor(self.E(M_u, 0, 4), self.E(pad_1_0(M_v), 0, 5))
+            X = reduce(xor, X_i, iv)
+
+        # Line 632: Compute M_y, M_x
+        M_y = xor(S_x, self.E(S_y, -1, 1))
+        M_x = reduce(xor, [delta, X, self.E(M_y, 0, 1)])
+        return reduce(list.__add__, [M_i, M_u, M_v, M_x, M_y])
 
     def Encipher(self, T,X):
         if len(X) < 32:
