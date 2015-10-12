@@ -365,10 +365,10 @@ class AEZ:
     def Encrypt(self, N, A, tau, M):
         X = map(ord, M) + [0] * (tau // 8)
         T = [ numToBlock(tau), map(ord,N) ]
-        T += A
+        T += [ map(ord, ad) for ad in A ]
         if len(M) == 0:
             r = self.AEZ_prf(T, tau // 8)
         else:
             r = self.Encipher(T, X)
-        return r
+        return "".join(map(chr, r))
 
