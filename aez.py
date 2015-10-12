@@ -193,8 +193,11 @@ class AEZ:
         return delta
 
     def AEZ_prf(self, T, nBytes):
-        result = []
         delta = self.AEZ_hash(T)
+        return self.AEZ_prf_inner(delta, nBytes)
+
+    def AEZ_prf_inner(self, delta, nBytes):
+        result = []
         idx = 0L
         while len(result) < nBytes:
             block = xor(delta, numToBlock(idx))
