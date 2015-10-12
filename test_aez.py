@@ -106,7 +106,7 @@ def testPRF():
         assert out == b(h(R))
     print "%d/%d AEZ-prf okay"%((len(PRF_VECTORS),)*2)
 
-def testEncrypt():
+def testEncrypt(decrypt_too=False):
     ok = 0
     for K, N, A, taubytes, M, C in ENCRYPT_VECTORS:
         out = AEZ(h(K)).Encrypt(h(N), map(h, A), taubytes * 8, h(M))
@@ -114,6 +114,11 @@ def testEncrypt():
             ok += 1
         else:
             print "BAD (taubytes=%d,len(M)=%d)"%(taubytes, len(M)//2)
+            continue
+
+        if decrypt_too:
+            D = AEZ(h(K)).Decrypt(h(N), map(h,A), taubytes*8, out)
+            assert D == h(M)
 
     print "%d/%d encryptions okay"%(ok,len(ENCRYPT_VECTORS))
     assert ok == len(ENCRYPT_VECTORS)
@@ -124,7 +129,7 @@ def testVectors():
     testE()
     testHash()
     testPRF()
-    testEncrypt()
+    testEncrypt(True)
     print "OK"
 
 if __name__ == '__main__':

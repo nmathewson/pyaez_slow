@@ -8,6 +8,9 @@
 import aes
 import pyblake2
 
+class BadCiphertext(Exception):
+    pass
+
 def xor(a,b):
     assert len(a) == len(b)
     return [(aa^bb) for aa, bb in zip(a,b)]
@@ -208,9 +211,7 @@ class AEZ:
 
         return result[:nBytes]
 
-    def Encipher_tiny(self,T,X):
-        m = len(X) * 8
-        delta = self.AEZ_hash(T)
+    def Encipher_tiny_getrounds(self,m):
         if m == 8:
             k = 24
         elif m == 16:
@@ -219,8 +220,9 @@ class AEZ:
             k = 10
         else:
             k = 8
-        n = m // 2
+        return k
 
+    def Encipher_tiny_split_bits(self, X):
         # Split X into L and R.
         if len(X) & 1:
             L = X[:len(X)//2+1]
@@ -248,19 +250,9 @@ class AEZ:
             def mask(x):
                 return x[:half_length]
             pad = pad_1_0
+        return L, R, mask, pad
 
-        if m >= 128:
-            i = 6
-        else:
-            i = 7
-
-        for j in xrange(k):
-            rhs = reduce(xor, [delta, pad(mask(R)), numToBlock(j)])
-            rhs = self.E(rhs, 0, i)
-            Rp = mask(xor(pad(L), rhs))
-            L = R
-            R = Rp
-
+    def Encipher_tiny_concat_bits(self, X, R, L):
         if len(X) & 1:
             # concatenate bitwise
             C = R[:]
@@ -272,6 +264,29 @@ class AEZ:
         else:
             C = R + L
 
+        return C
+
+    def Encipher_tiny(self,T,X):
+        delta = self.AEZ_hash(T)
+        m = len(X) * 8
+        k = self.Encipher_tiny_getrounds(m)
+
+        if m >= 128:
+            i = 6
+        else:
+            i = 7
+
+        L,R,mask,pad = self.Encipher_tiny_split_bits(X)
+
+        for j in xrange(k):
+            rhs = reduce(xor, [delta, pad(mask(R)), numToBlock(j)])
+            rhs = self.E(rhs, 0, i)
+            Rp = mask(xor(pad(L), rhs))
+            L = R
+            R = Rp
+
+        C = self.Encipher_tiny_concat_bits(X,R,L) #note that this is R||L.
+
         if m < 128:
             inp = pad_0(C)
             inp[0] |= 0x80
@@ -281,6 +296,35 @@ class AEZ:
             C[0] ^= bit
 
         return C
+
+    def Decipher_tiny(self,T,C):
+        delta = self.AEZ_hash(T)
+        m = len(C)*8
+        k = self.Encipher_tiny_getrounds(m)
+        if m >= 128:
+            i = 6
+        else:
+            i = 7
+
+        if m < 128:
+            inp = pad_0(C)
+            inp[0] |= 0x80
+            inp = xor(inp, delta)
+            inp = self.E(inp, 0, 3)
+            bit = inp[0] & 0x80
+            C[0] ^= bit
+
+        L,R,mask,pad = self.Encipher_tiny_split_bits(C)
+
+        for j in xrange(k-1, -1, -1):
+            rhs = reduce(xor, [delta, pad(mask(R)), numToBlock(j)])
+            rhs = self.E(rhs, 0, i)
+            Rp = mask(xor(pad(L), rhs))
+            L = R
+            R = Rp
+
+        return self.Encipher_tiny_concat_bits(C,R,L)[:len(C)]
+
 
     def Encipher_core(self,T,M):
         delta = self.AEZ_hash(T)
@@ -359,11 +403,20 @@ class AEZ:
         r.extend([C_u, C_v, C_x, C_y])
         return reduce(list.__add__, r)
 
+    def Decipher_core(self,T,C):
+        assert False
+
     def Encipher(self, T,X):
         if len(X) < 32:
             return self.Encipher_tiny(T,X)
         else:
             return self.Encipher_core(T,X)
+
+    def Decipher(self, T,X):
+        if len(X) < 32:
+            return self.Decipher_tiny(T,X)
+        else:
+            return self.Decipher_core(T,X)
 
     def Encrypt(self, N, A, tau, M):
         X = map(ord, M) + [0] * (tau // 8)
@@ -375,3 +428,25 @@ class AEZ:
             r = self.Encipher(T, X)
         return "".join(map(chr, r))
 
+
+    def Decrypt(self, N, A, tau, C):
+        T = [ numToBlock(tau), map(ord,N) ]
+        T += [ map(ord, ad) for ad in A ]
+        if len(C) < tau//8:
+            raise BadCiphertext("Too short")
+
+        if len(C) == tau//8:
+            # XXXX Should compare in constant time.
+            if C == "".join(map(chr, self.AEZ_prf(T, tau // 8))):
+                return ""
+            else:
+                raise BadCiphertext("Bad PRF")
+        else:
+            r = self.Decipher(T, map(ord,C))
+            if tau:
+                zeros = r[-(tau//8):]
+                # XXXX Should compare in constant time.
+                if r[-(tau//8):] != [0]*(tau//8):
+                    raise BadCiphertext("Bad bits")
+                r = r[:-(tau//8)]
+            return "".join(map(chr, r))
