@@ -79,6 +79,9 @@ def wordsToBlock(ws):
         r.append((w>>0 ) & 0xff)
     return r
 
+def bytes_eq(a,b):
+    assert len(a) == len(b)
+    return sum(ae^be for ae, be in zip(a,b)) == 0
 
 ZERO_128 = (0,)*16
 
@@ -513,8 +516,7 @@ class AEZ:
             raise BadCiphertext("Too short")
 
         if len(C) == tau//8:
-            # XXXX Should compare in constant time.
-            if C == "".join(map(chr, self.AEZ_prf(T, tau // 8))):
+            if bytes_eq(map(ord,C), self.AEZ_prf(T, tau // 8)):
                 return ""
             else:
                 raise BadCiphertext("Bad PRF")
@@ -522,8 +524,7 @@ class AEZ:
             r = self.Decipher(T, map(ord,C))
             if tau:
                 zeros = r[-(tau//8):]
-                # XXXX Should compare in constant time.
-                if r[-(tau//8):] != [0]*(tau//8):
+                if not bytes_eq(r[-(tau//8):], [0]*(tau//8)):
                     raise BadCiphertext("Bad bits")
                 r = r[:-(tau//8)]
             return "".join(map(chr, r))
